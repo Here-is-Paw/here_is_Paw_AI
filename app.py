@@ -1,25 +1,50 @@
-from flask import Flask, request, jsonify
-import cv2
+from kafka import KafkaConsumer
+from kafka import KafkaProducer
+import json
+import base64
 import numpy as np
-from detector import extract_and_save_features, compare_with_database, resize_image_if_large
-import logging
-from database import init_db, get_db
+import psutil
+import cv2
+import threading
+import time
 import gc
 import os
-import psutil
-import time
+import logging
+import signal
+from database import get_db
+from detector import (
+    extract_and_save_features, 
+    resize_image_if_large, 
+    compare_with_database)
+from config import (
+    KAFKA_BOOTSTRAP_SERVERS, 
+    KAFKA_REQUEST_TOPIC, 
+    KAFKA_GROUP_ID,
+    KAFKA_COMPARE_RESPONSE_TOPIC  # 응답 토픽 추가
+)
+import requests
 
+# # 로깅 설정
+# logging.basicConfig(level=logging.INFO)
+# logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
-logging.basicConfig(level=logging.DEBUG)
-logger = app.logger
+# 로깅 설정 부분 수정
+logging.basicConfig(
+    level=logging.WARNING,  # 전체 로깅 레벨을 WARNING으로 변경
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-# 업로드된 파일을 저장할 디렉토리 설정
-# UPLOAD_FOLDER = 'uploads'
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
+# Kafka 관련 로거들의 레벨을 ERROR로 설정
+logging.getLogger('kafka').setLevel(logging.ERROR)
+logging.getLogger('kafka.consumer').setLevel(logging.ERROR)
+logging.getLogger('kafka.consumer.group').setLevel(logging.ERROR)
+logging.getLogger('kafka.coordinator').setLevel(logging.ERROR)
+logging.getLogger('kafka.client').setLevel(logging.ERROR)
+logging.getLogger('kafka.conn').setLevel(logging.ERROR)
 
-# if not os.path.exists(UPLOAD_FOLDER):
-#     os.makedirs(UPLOAD_FOLDER)
+# 종료 플래그
+running = True
 
 # 메모리 사용량 로깅
 def log_memory_usage():
@@ -27,68 +52,90 @@ def log_memory_usage():
     memory_info = process.memory_info()
     logger.info(f"Memory usage: {memory_info.rss / 1024 / 1024:.2f} MB")
 
-# def read_image_file(file):
-#     """파일 스트림에서 직접 이미지 읽기"""
-#     file_bytes = np.asarray(bytearray(file.read()), dtype=np.uint8)
-#     img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-#     file.seek(0)  # 파일 포인터 리셋
-#     return img
+# 카프카 컨슈머 생성
+def create_kafka_consumer():
+    return KafkaConsumer(
+        KAFKA_REQUEST_TOPIC,
+        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+        group_id=KAFKA_GROUP_ID,
+        auto_offset_reset='earliest',
+        api_version=(2, 5, 0),
+        value_deserializer=lambda x: safe_json_decode(x)
+    )
 
-def read_image_file(file, max_size=512):
-    """파일 스트림에서 직접 이미지 읽기 + 크기 제한"""
+# 카프카 프로듀서 생성
+def create_kafka_producer():
+    return KafkaProducer(
+        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+        api_version=(2, 5, 0),
+        value_serializer=lambda x: json.dumps(x).encode('utf-8')
+    )
+
+
+def safe_json_decode(value):
     try:
-        file_bytes = np.asarray(bytearray(file.read()), dtype=np.uint8)
-        img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        file.seek(0)  # 파일 포인터 리셋
+        return json.loads(value.decode('utf-8'))
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        logger.warning(f"JSON 디코딩 오류: {str(e)}, 원본 메시지: {value[:100]}")
+        return {"type": "invalid", "raw_content": str(value[:100])}
+
+
+def download_image_from_url(image_url):
+    """
+    URL에서 이미지를 다운로드하고 OpenCV 형식으로 변환
+    """
+    try:
+        # URL에서 이미지 다운로드
+        response = requests.get(image_url, timeout=10)
+        response.raise_for_status()  # HTTP 오류 확인
+
+        # NumPy 배열로 변환
+        image_array = np.frombuffer(response.content, np.uint8)
         
-        if img is None:
+        # OpenCV로 이미지 디코딩
+        image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+        
+        if image is None:
+            logger.error(f"이미지 디코딩 실패: {image_url}")
             return None
-            
-        # 이미지 크기 제한
-        height, width = img.shape[:2]
-        if height > max_size or width > max_size:
-            logger.info(f"대용량 이미지 감지: {width}x{height}, 리사이즈 중...")
-            img = resize_image_if_large(img, max_size)
-            
-        return img
-    except Exception as e:
-        logger.error(f"이미지 읽기 오류: {str(e)}")
+        
+        return image
+
+    except requests.RequestException as e:
+        logger.error(f"이미지 다운로드 오류: {e}")
         return None
 
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@app.route('/save', methods=['POST'])
-def save_dog():
+# 저장 요청 처리 함수
+def process_save_request(message_data):
     """강아지 이미지를 DB에 저장"""
     log_memory_usage()
     start_time = time.time()
     
-    if 'image' not in request.files:
-        return jsonify({'error': '이미지가 필요합니다.'}), 400
+    if 'image' not in message_data:
+        logger.error("이미지가 필요합니다.")
+        return
     
-    file = request.files['image']
+    if 'postType' not in message_data or 'postId' not in message_data:
+        logger.error("postType과 postId가 필요합니다.")
+        return
     
-    if file.filename == '':
-        return jsonify({'error': '파일이 선택되지 않았습니다.'}), 400
-    
-    if not allowed_file(file.filename):
-        return jsonify({'error': '허용되지 않는 파일 형식입니다.'}), 400
-    
-    # 요청 파라미터 검증
-    if 'postType' not in request.form or 'postId' not in request.form:
-        return jsonify({'error': 'postType과 postId가 필요합니다.'}), 400
-    
-    postType = request.form['postType']
+    postType = message_data['postType']
     try:
-        postId = int(request.form['postId'])
+        postId = int(message_data['postId'])
     except ValueError:
-        return jsonify({'error': 'postId는 정수여야 합니다.'}), 400
+        logger.error("postId는 정수여야 합니다.")
+        return
 
     try:
-        img = read_image_file(file)
+        # 이미지 디코딩
+        img = download_image_from_url(message_data['image'])
         if img is None:
-            return jsonify({'error': '이미지를 읽을 수 없습니다.'}), 400
+            logger.error("이미지를 읽을 수 없습니다.")
+            return
+        
+        # 이미지 크기 제한
+        img = resize_image_if_large(img)
         
         logger.info(f"이미지 로드 완료: {img.shape}")
         
@@ -103,12 +150,9 @@ def save_dog():
             logger.info(f"처리 시간: {time.time() - start_time:.2f}초")
             log_memory_usage()
             
-            return jsonify({
-                'message': '저장 성공',
-                'image_id': dog_feature.id,
-                'post_type': dog_feature.post_type,
-                'post_id': dog_feature.post_id
-            })
+            # 결과 로깅
+            logger.info(f"저장 성공: image_id={dog_feature.id}, post_type={dog_feature.post_type}, post_id={dog_feature.post_id}")
+            
         finally:
             db.close()
             
@@ -121,39 +165,35 @@ def save_dog():
         gc.collect()
         
         log_memory_usage()
-        return jsonify({'error': str(e)}), 500
 
-@app.route('/compare_with_db', methods=['POST'])
-def compare_with_stored():
-    """새 이미지와 DB의 저장된 이미지들 비교"""
+# 비교 요청 처리 함수
+def process_compare_request(message_data, producer):
+    """새 이미지와 DB의 저장된 이미지들 비교 후 Kafka로 결과 발행"""
     log_memory_usage()
     start_time = time.time()
     
-    if 'image' not in request.files:
-        return jsonify({'error': '이미지가 필요합니다.'}), 400
-    
-    file = request.files['image']
-    
-    if 'postType' not in request.form:
-        return jsonify({'error': 'postType이 필요합니다.'}), 400
+    if 'image' not in message_data:
+        logger.error("이미지가 필요합니다.")
+        return
         
-    lookupType = request.form['postType']
-
-    if file.filename == '' or not allowed_file(file.filename):
-        return jsonify({'error': '올바른 이미지 파일이 필요합니다.'}), 400
+    if 'postType' not in message_data:
+        logger.error("postType이 필요합니다.")
+        return
 
     try:
-        img = read_image_file(file)
+        # 이미지 디코딩
+        img = download_image_from_url(message_data['image'])
         if img is None:
-            return jsonify({'error': '이미지를 읽을 수 없습니다.'}), 400
-        
+            logger.error("이미지를 읽을 수 없습니다.")
+            return
+            
         logger.info(f"비교 이미지 로드 완료: {img.shape}")
         
         db = next(get_db())
         try:
-            # 낮은 임계값으로 시작해 점진적으로 높이기 (메모리 효율성)
-            threshold = 0.9  # 0.9에서 0.7로 낮춤
-            results = compare_with_database(img, lookupType, db, threshold)
+            # 낮은 임계값으로 시작 (메모리 효율성)
+            threshold = 0.9
+            results = compare_with_database(img, message_data['postType'], db, threshold)
             
             # 명시적 메모리 해제
             del img
@@ -162,22 +202,45 @@ def compare_with_stored():
             logger.info(f"비교 완료: {len(results)}개 결과, 처리 시간: {time.time() - start_time:.2f}초")
             log_memory_usage()
             
-            # 상위 5개만 반환 (메모리 효율성)
+            # 상위 5개만 선택
             top_results = results[:5] if len(results) > 5 else results
             
-            return jsonify({
+            # Kafka 응답 메시지 구성
+            response_message = {
+                'request_id': message_data.get('request_id'),  # 요청 ID가 있다면 포함
+                'status': 'success',
                 'matches': [{
                     'image_id': r['image_id'],
                     'post_type': r['post_type'],
                     'post_id': r['post_id'],
                     'similarity': float(r['similarity'])
                 } for r in top_results]
-            })
+            }
+            
+            # Kafka 프로듀서로 결과 발행
+            producer.send(
+                KAFKA_COMPARE_RESPONSE_TOPIC,
+                value=response_message  # encode 제거 - value_serializer가 처리
+            )
+            producer.flush()
+            
         finally:
             db.close()
             
     except Exception as e:
         logger.error(f'비교 중 에러 발생: {str(e)}')
+        
+        # 에러 응답 발행
+        error_message = {
+            'request_id': message_data.get('request_id'),
+            'status': 'error',
+            'error': str(e)
+        }
+        producer.send(
+            KAFKA_COMPARE_RESPONSE_TOPIC,
+            value=error_message
+        )
+        producer.flush()
         
         # 명시적 메모리 해제
         if 'img' in locals():
@@ -185,21 +248,65 @@ def compare_with_stored():
         gc.collect()
         
         log_memory_usage()
-        return jsonify({'error': str(e)}), 500
 
-# # 서버 시작 시 메모리 상태 확인
-# @app.before_first_request
-# def before_first_request():
-#     log_memory_usage()
-#     logger.info("첫 요청 처리 준비 완료")
+# 시그널 핸들러
+def signal_handler(sig, frame):
+    global running
+    logger.info(f"시그널 {sig} 수신, 종료 중...")
+    running = False
 
-if __name__ == '__main__':
-    # DB 초기화
-    init_db()
-    logger.info('데이터베이스 초기화 완료')
+# 메인 함수
+def main():
+    # 시그널 핸들러 등록
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
-    # 서버 시작 전 메모리 상태 확인
-    log_memory_usage()
+    # Kafka 컨슈머 생성
+    consumer = create_kafka_consumer()
+    producer = create_kafka_producer()  # 프로듀서 초기화 추가
+    logger.info(f"Kafka 컨슈머/프로듀서 생성 완료, {KAFKA_REQUEST_TOPIC} 토픽 구독 중...")
     
-    # 서버 시작
-    app.run(host='0.0.0.0', port=5002, debug=False)  # debug=False로 메모리 사용량 감소
+    try:
+        for message in consumer:
+            if not running:
+                break
+                
+            try:
+                logger.info("새로운 메시지 수신")
+                logger.info(f"토픽: {message.topic}")
+                logger.info(f"파티션: {message.partition}")
+                logger.info(f"오프셋: {message.offset}")
+                logger.info(f"키: {message.key}")
+                logger.info(f"값: {message.value}")
+                
+                # 메시지 처리
+                message_data = message.value
+
+                # 메시지가 유효하지 않은 경우 건너뛰기
+                if message_data.get('type') == 'invalid':
+                    logger.warning(f"유효하지 않은 메시지 무시: {message_data.get('raw_content')}")
+                    continue
+                
+                # 메시지 타입 확인 (save 타입만 처리)
+                message_type = message_data.get('type', 'save')  # 기본값을 'save'로 설정
+                
+                if message_type == 'save':
+                    process_save_request(message_data)
+                    process_compare_request(message_data, producer)
+                else:
+                    logger.info(f"처리할 수 없는 메시지 타입: {message_type}")
+                    
+            except Exception as e:
+                logger.error(f"메시지 처리 중 오류 발생: {str(e)}")
+                
+    except Exception as e:
+        logger.error(f"Kafka 소비자 실행 중 오류 발생: {str(e)}")
+    finally:
+        # 정리
+        consumer.close()
+        producer.close()
+        logger.info("Kafka 컨슈머가 종료되었습니다.")
+
+if __name__ == "__main__":
+    logger.info("강아지 얼굴 Kafka 처리 서비스 시작")
+    main()
