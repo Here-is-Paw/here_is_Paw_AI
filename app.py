@@ -1,5 +1,3 @@
-from kafka import KafkaConsumer
-from kafka import KafkaProducer
 import json
 import base64
 import numpy as np
@@ -11,26 +9,24 @@ import gc
 import os
 import logging
 import signal
+import requests
+from kafka_handler import KafkaHandler
 from database import get_db
 from detector import (
     extract_and_save_features, 
     resize_image_if_large, 
-    compare_with_database)
+    compare_with_database
+)
 from config import (
     KAFKA_BOOTSTRAP_SERVERS, 
     KAFKA_REQUEST_TOPIC, 
     KAFKA_GROUP_ID,
-    KAFKA_COMPARE_RESPONSE_TOPIC  # 응답 토픽 추가
+    KAFKA_COMPARE_RESPONSE_TOPIC
 )
-import requests
 
-# # 로깅 설정
-# logging.basicConfig(level=logging.INFO)
-# logger = logging.getLogger(__name__)
-
-# 로깅 설정 부분 수정
+# 로깅 설정
 logging.basicConfig(
-    level=logging.WARNING,  # 전체 로깅 레벨을 WARNING으로 변경
+    level=logging.WARNING,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -45,54 +41,20 @@ logging.getLogger('kafka.conn').setLevel(logging.ERROR)
 
 # 종료 플래그
 running = True
+shutdown_event = threading.Event()
 
-# 메모리 사용량 로깅
 def log_memory_usage():
+    """메모리 사용량 로깅"""
     process = psutil.Process(os.getpid())
     memory_info = process.memory_info()
     logger.info(f"Memory usage: {memory_info.rss / 1024 / 1024:.2f} MB")
 
-# 카프카 컨슈머 생성
-def create_kafka_consumer():
-    return KafkaConsumer(
-        KAFKA_REQUEST_TOPIC,
-        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        group_id=KAFKA_GROUP_ID,
-        auto_offset_reset='earliest',
-        api_version=(2, 5, 0),
-        value_deserializer=lambda x: safe_json_decode(x)
-    )
-
-# 카프카 프로듀서 생성
-def create_kafka_producer():
-    return KafkaProducer(
-        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        api_version=(2, 5, 0),
-        value_serializer=lambda x: json.dumps(x).encode('utf-8')
-    )
-
-
-def safe_json_decode(value):
-    try:
-        return json.loads(value.decode('utf-8'))
-    except (json.JSONDecodeError, UnicodeDecodeError) as e:
-        logger.warning(f"JSON 디코딩 오류: {str(e)}, 원본 메시지: {value[:100]}")
-        return {"type": "invalid", "raw_content": str(value[:100])}
-
-
 def download_image_from_url(image_url):
-    """
-    URL에서 이미지를 다운로드하고 OpenCV 형식으로 변환
-    """
+    """URL에서 이미지를 다운로드하고 OpenCV 형식으로 변환"""
     try:
-        # URL에서 이미지 다운로드
         response = requests.get(image_url, timeout=10)
-        response.raise_for_status()  # HTTP 오류 확인
-
-        # NumPy 배열로 변환
+        response.raise_for_status()
         image_array = np.frombuffer(response.content, np.uint8)
-        
-        # OpenCV로 이미지 디코딩
         image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
         
         if image is None:
@@ -100,18 +62,15 @@ def download_image_from_url(image_url):
             return None
         
         return image
-
     except requests.RequestException as e:
         logger.error(f"이미지 다운로드 오류: {e}")
         return None
 
-# 포스트타입 변환
 def get_compare_type(post_type):
     """저장된 postType과 반대되는 타입 반환"""
     return 'finding' if post_type == 'missing' else 'missing'
 
-# 메시지 처리
-def process_message(message_data, producer):
+def process_message(message_data, kafka_handler):
     """메시지 처리 통합 함수"""
     log_memory_usage()
     start_time = time.time()
@@ -136,28 +95,31 @@ def process_message(message_data, producer):
             logger.error("이미지를 읽을 수 없습니다.")
             return
             
-        # 이미지 크기 제한
         img = resize_image_if_large(img)
         logger.info(f"이미지 로드 완료: {img.shape}")
         
         db = next(get_db())
         try:
-            # 저장 처리
-            dog_feature = extract_and_save_features(img, post_type, int(message_data['postId']), db)
-            logger.info(f"저장 성공: image_id={dog_feature.id}, post_type={dog_feature.post_type}, post_id={dog_feature.post_id}")
+            # 저장 및 특징 추출
+            dog_feature = extract_and_save_features(
+                img, 
+                post_type, 
+                int(message_data['postId']), 
+                db
+            )
+            logger.info(f"저장 성공: image_id={dog_feature.id}")
             
             # 비교 처리
             compare_type = get_compare_type(post_type)
-            threshold = 0.9
-            results = compare_with_database(img, compare_type, db, threshold)
+            results = compare_with_database(img, compare_type, db, threshold=0.9)
+            top_results = results[:20] if len(results) > 20 else results
             
-            # 상위 결과 선택
-            top_results = results[:5] if len(results) > 5 else results
-            
-            # Kafka 응답 메시지 발행
+            # 응답 메시지 구성
             response_message = {
                 'request_id': message_data.get('request_id'),
                 'status': 'success',
+                'saved_type': post_type,
+                'compared_type': compare_type,
                 'matches': [{
                     'image_id': r['image_id'],
                     'post_type': r['post_type'],
@@ -166,94 +128,81 @@ def process_message(message_data, producer):
                 } for r in top_results]
             }
             
-            producer.send(KAFKA_COMPARE_RESPONSE_TOPIC, value=response_message)
-            producer.flush()
-            
+            # 결과 발행
+            kafka_handler.send_response(response_message)
             logger.info(f"전체 처리 시간: {time.time() - start_time:.2f}초")
             
         finally:
             db.close()
-            
-            # 명시적 메모리 해제
             del img
             gc.collect()
             log_memory_usage()
             
     except Exception as e:
         logger.error(f'처리 중 에러 발생: {str(e)}')
-        
-        # 에러 응답 발행
-        error_message = {
+        kafka_handler.send_error({
             'request_id': message_data.get('request_id'),
             'status': 'error',
             'error': str(e)
-        }
-        producer.send(KAFKA_COMPARE_RESPONSE_TOPIC, value=error_message)
-        producer.flush()
-        
-        # 명시적 메모리 해제
+        })
         if 'img' in locals():
             del img
         gc.collect()
         log_memory_usage()
 
-# 시그널 핸들러
 def signal_handler(sig, frame):
+    """시그널 핸들러"""
     global running
-    logger.info(f"시그널 {sig} 수신, 종료 중...")
+    logger.warning(f"시그널 {sig} 수신, 안전하게 종료합니다...")
     running = False
+    shutdown_event.set()
 
-# 메인 함수
 def main():
-    # 시그널 핸들러 등록
+    """메인 함수"""
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    # Kafka 컨슈머 생성
-    consumer = create_kafka_consumer()
-    producer = create_kafka_producer()  # 프로듀서 초기화 추가
-    logger.info(f"Kafka 컨슈머/프로듀서 생성 완료, {KAFKA_REQUEST_TOPIC} 토픽 구독 중...")
+    kafka_handler = KafkaHandler()
+    logger.warning("Kafka 서비스 시작")
     
     try:
-        for message in consumer:
-            if not running:
-                break
+        while not shutdown_event.is_set():
+            message = kafka_handler.consumer.poll(timeout_ms=1000)
+            if not message:
+                continue
                 
-            try:
-                logger.info("새로운 메시지 수신")
-                logger.info(f"토픽: {message.topic}")
-                logger.info(f"파티션: {message.partition}")
-                logger.info(f"오프셋: {message.offset}")
-                logger.info(f"키: {message.key}")
-                logger.info(f"값: {message.value}")
-                
-                # 메시지 처리
-                message_data = message.value
-
-                # 메시지가 유효하지 않은 경우 건너뛰기
-                if message_data.get('type') == 'invalid':
-                    logger.warning(f"유효하지 않은 메시지 무시: {message_data.get('raw_content')}")
-                    continue
-                
-                # 메시지 타입 확인 (save 타입만 처리)
-                message_type = message_data.get('type', 'save')  # 기본값을 'save'로 설정
-                
-                if message_type == 'save':
-                    process_message(message_data, producer)
-                else:
-                    logger.info(f"처리할 수 없는 메시지 타입: {message_type}")
-                    
-            except Exception as e:
-                logger.error(f"메시지 처리 중 오류 발생: {str(e)}")
-                
+            for tp, msgs in message.items():
+                for msg in msgs:
+                    if not running:
+                        raise KeyboardInterrupt
+                        
+                    try:
+                        message_data = msg.value
+                        if message_data.get('type') == 'invalid':
+                            logger.warning(f"유효하지 않은 메시지 무시")
+                            continue
+                        
+                        message_type = message_data.get('type', 'save')
+                        if message_type == 'save':
+                            process_message(message_data, kafka_handler)
+                        else:
+                            logger.warning(f"지원하지 않는 메시지 타입: {message_type}")
+                            
+                    except Exception as e:
+                        logger.error(f"메시지 처리 실패: {str(e)}")
+                        
+    except KeyboardInterrupt:
+        logger.warning("종료 요청 감지")
     except Exception as e:
-        logger.error(f"Kafka 소비자 실행 중 오류 발생: {str(e)}")
+        logger.error(f"실행 중 오류 발생: {str(e)}")
     finally:
-        # 정리
-        consumer.close()
-        producer.close()
-        logger.info("Kafka 컨슈머가 종료되었습니다.")
+        try:
+            kafka_handler.producer.flush()
+            kafka_handler.close()
+            logger.warning("Kafka 서비스가 안전하게 종료되었습니다.")
+        except Exception as e:
+            logger.error(f"종료 중 오류 발생: {str(e)}")
 
 if __name__ == "__main__":
-    logger.info("강아지 얼굴 Kafka 처리 서비스 시작")
+    logger.warning("강아지 얼굴 Kafka 처리 서비스를 시작합니다")
     main()
