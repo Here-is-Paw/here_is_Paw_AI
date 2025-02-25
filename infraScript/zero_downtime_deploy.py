@@ -37,6 +37,10 @@ class ServiceManager:
             ((name, port) for name, port in self.services.items() if name != self.current_name),
             (None, None)
         )
+    def _cleanup_dangling_images(self) -> None:
+        # 특정 이미지 중 <none> 태그가 된 이미지만 정리
+        print("dog_face_compare의 <none> 태그 이미지 정리 중...")
+        os.system("docker images | grep 'here-is-paw/dog_face_compare' | grep '<none>' | awk '{print $3}' | xargs -r docker rmi")
 
     # Docker 컨테이너를 제거하는 함수
     def _remove_container(self, name: str) -> None:
@@ -111,6 +115,8 @@ class ServiceManager:
             self._remove_container(self.current_name)
 
         print("서비스 전환 완료!")
+        self._cleanup_dangling_images()
+        print("이미지제거완료")
 
 
 if __name__ == "__main__":
