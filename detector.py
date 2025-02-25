@@ -34,7 +34,7 @@ predictor = dlib.shape_predictor(predictor_path)
 device = "cpu"
 
 # CLIP 모델 로드 (ViT-B/16)
-clip_model, clip_preprocess = clip.load("ViT-B/16", device=device)
+clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
 clip_model.eval()
 transform = clip_preprocess  # CLIP 전처리 transform
 
@@ -57,7 +57,7 @@ def _raw_face_locations(img, upsample_num=1):
     """얼굴 위치 검출"""
     return detector(img, upsample_num)
 
-def resize_image_if_large(image, max_size=1024):
+def resize_image_if_large(image, max_size=512):
     """이미지가 너무 큰 경우 리사이즈"""
     height, width = image.shape[:2]
     if height > max_size or width > max_size:
@@ -264,9 +264,6 @@ logger = logging.getLogger(__name__)
 def extract_and_save_features(img, postType, postId, db):
     """이미지에서 특징을 추출하고 DB에 저장"""
     try:
-        # img = cv2.imread(image_path)
-        # if img is None:
-        #     raise ValueError("이미지를 읽을 수 없습니다")
         
         # 그레이스케일 변환
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -294,6 +291,13 @@ def extract_and_save_features(img, postType, postId, db):
         )
         db.add(dog_image)
         db.commit()
+
+        # 명시적 메모리 해제
+        del embedding
+        del landmark_features
+        del gray
+        import gc
+        gc.collect()
         
         return dog_image
         

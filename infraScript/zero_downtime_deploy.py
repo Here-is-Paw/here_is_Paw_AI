@@ -46,7 +46,7 @@ class ServiceManager:
     # Docker 컨테이너를 실행하는 함수
     def _run_container(self, name: str, port: int) -> None:
         os.system(
-            f"docker run -d --name={name} --restart unless-stopped -p {port}:5001 -e TZ=Asia/Seoul -v /dockerProjects/dog_face_compare/models:/app/models --pull always ghcr.io/here-is-paw/here_is_paw_ai:latest")
+            f"docker run -d --name={name} --restart unless-stopped -p {port}:5001 -e TZ=Asia/Seoul -e DATABASE_URL='postgresql://myuser:1234@43.203.126.129:5432/dogdb_test' -v /dockerProjects/dog_face_compare/models:/app/models --pull always ghcr.io/here-is-paw/dog_face_compare:latest")
 
     def _switch_port(self) -> None:
         # Socat 포트를 전환하는 함수
