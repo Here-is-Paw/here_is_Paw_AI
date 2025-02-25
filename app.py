@@ -105,10 +105,14 @@ def download_image_from_url(image_url):
         logger.error(f"이미지 다운로드 오류: {e}")
         return None
 
+# 포스트타입 변환
+def get_compare_type(post_type):
+    """저장된 postType과 반대되는 타입 반환"""
+    return 'finding' if post_type == 'missing' else 'missing'
 
-# 저장 요청 처리 함수
-def process_save_request(message_data):
-    """강아지 이미지를 DB에 저장"""
+# 메시지 처리
+def process_message(message_data, producer):
+    """메시지 처리 통합 함수"""
     log_memory_usage()
     start_time = time.time()
     
@@ -120,94 +124,39 @@ def process_save_request(message_data):
         logger.error("postType과 postId가 필요합니다.")
         return
     
-    postType = message_data['postType']
-    try:
-        postId = int(message_data['postId'])
-    except ValueError:
-        logger.error("postId는 정수여야 합니다.")
+    post_type = message_data['postType']
+    if post_type not in ['missing', 'finding']:
+        logger.error(f"유효하지 않은 postType: {post_type}")
         return
 
     try:
-        # 이미지 디코딩
+        # 이미지 한 번만 다운로드
         img = download_image_from_url(message_data['image'])
         if img is None:
             logger.error("이미지를 읽을 수 없습니다.")
             return
-        
+            
         # 이미지 크기 제한
         img = resize_image_if_large(img)
-        
         logger.info(f"이미지 로드 완료: {img.shape}")
         
         db = next(get_db())
         try:
-            dog_feature = extract_and_save_features(img, postType, postId, db)
-            
-            # 명시적 메모리 해제
-            del img
-            gc.collect()
-            
-            logger.info(f"처리 시간: {time.time() - start_time:.2f}초")
-            log_memory_usage()
-            
-            # 결과 로깅
+            # 저장 처리
+            dog_feature = extract_and_save_features(img, post_type, int(message_data['postId']), db)
             logger.info(f"저장 성공: image_id={dog_feature.id}, post_type={dog_feature.post_type}, post_id={dog_feature.post_id}")
             
-        finally:
-            db.close()
-            
-    except Exception as e:
-        logger.error(f'저장 중 에러 발생: {str(e)}')
-        
-        # 명시적 메모리 해제
-        if 'img' in locals():
-            del img
-        gc.collect()
-        
-        log_memory_usage()
-
-# 비교 요청 처리 함수
-def process_compare_request(message_data, producer):
-    """새 이미지와 DB의 저장된 이미지들 비교 후 Kafka로 결과 발행"""
-    log_memory_usage()
-    start_time = time.time()
-    
-    if 'image' not in message_data:
-        logger.error("이미지가 필요합니다.")
-        return
-        
-    if 'postType' not in message_data:
-        logger.error("postType이 필요합니다.")
-        return
-
-    try:
-        # 이미지 디코딩
-        img = download_image_from_url(message_data['image'])
-        if img is None:
-            logger.error("이미지를 읽을 수 없습니다.")
-            return
-            
-        logger.info(f"비교 이미지 로드 완료: {img.shape}")
-        
-        db = next(get_db())
-        try:
-            # 낮은 임계값으로 시작 (메모리 효율성)
+            # 비교 처리
+            compare_type = get_compare_type(post_type)
             threshold = 0.9
-            results = compare_with_database(img, message_data['postType'], db, threshold)
+            results = compare_with_database(img, compare_type, db, threshold)
             
-            # 명시적 메모리 해제
-            del img
-            gc.collect()
-            
-            logger.info(f"비교 완료: {len(results)}개 결과, 처리 시간: {time.time() - start_time:.2f}초")
-            log_memory_usage()
-            
-            # 상위 5개만 선택
+            # 상위 결과 선택
             top_results = results[:5] if len(results) > 5 else results
             
-            # Kafka 응답 메시지 구성
+            # Kafka 응답 메시지 발행
             response_message = {
-                'request_id': message_data.get('request_id'),  # 요청 ID가 있다면 포함
+                'request_id': message_data.get('request_id'),
                 'status': 'success',
                 'matches': [{
                     'image_id': r['image_id'],
@@ -217,18 +166,21 @@ def process_compare_request(message_data, producer):
                 } for r in top_results]
             }
             
-            # Kafka 프로듀서로 결과 발행
-            producer.send(
-                KAFKA_COMPARE_RESPONSE_TOPIC,
-                value=response_message  # encode 제거 - value_serializer가 처리
-            )
+            producer.send(KAFKA_COMPARE_RESPONSE_TOPIC, value=response_message)
             producer.flush()
+            
+            logger.info(f"전체 처리 시간: {time.time() - start_time:.2f}초")
             
         finally:
             db.close()
             
+            # 명시적 메모리 해제
+            del img
+            gc.collect()
+            log_memory_usage()
+            
     except Exception as e:
-        logger.error(f'비교 중 에러 발생: {str(e)}')
+        logger.error(f'처리 중 에러 발생: {str(e)}')
         
         # 에러 응답 발행
         error_message = {
@@ -236,17 +188,13 @@ def process_compare_request(message_data, producer):
             'status': 'error',
             'error': str(e)
         }
-        producer.send(
-            KAFKA_COMPARE_RESPONSE_TOPIC,
-            value=error_message
-        )
+        producer.send(KAFKA_COMPARE_RESPONSE_TOPIC, value=error_message)
         producer.flush()
         
         # 명시적 메모리 해제
         if 'img' in locals():
             del img
         gc.collect()
-        
         log_memory_usage()
 
 # 시그널 핸들러
@@ -291,8 +239,7 @@ def main():
                 message_type = message_data.get('type', 'save')  # 기본값을 'save'로 설정
                 
                 if message_type == 'save':
-                    process_save_request(message_data)
-                    process_compare_request(message_data, producer)
+                    process_message(message_data, producer)
                 else:
                     logger.info(f"처리할 수 없는 메시지 타입: {message_type}")
                     
