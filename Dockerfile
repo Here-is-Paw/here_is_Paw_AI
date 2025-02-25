@@ -20,12 +20,12 @@ RUN apt-get update && apt-get install -y \
 # 애플리케이션 코드 복사
 COPY . /app/
 
-# models 디렉토리 생성
-RUN mkdir -p /app/models
+# # models 디렉토리 생성
+# RUN mkdir -p /app/models
 
-# 필요한 모델 파일 다운로드 (URL이 유효한지 확인 필요)
-RUN wget -O /app/models/dogHeadDetector.dat "https://owncloud.cesnet.cz/index.php/s/V0KIPJoUFllpAXh/download?path=%2F&files=dogHeadDetector.dat" || echo "Failed to download dogHeadDetector.dat"
-RUN wget -O /app/models/landmarkDetector.dat "https://owncloud.cesnet.cz/index.php/s/V0KIPJoUFllpAXh/download?path=%2F&files=landmarkDetector.dat" || echo "Failed to download landmarkDetector.dat"
+# # 필요한 모델 파일 다운로드 (URL이 유효한지 확인 필요)
+# RUN wget -O /app/models/dogHeadDetector.dat "https://owncloud.cesnet.cz/index.php/s/V0KIPJoUFllpAXh/download?path=%2F&files=dogHeadDetector.dat" || echo "Failed to download dogHeadDetector.dat"
+# RUN wget -O /app/models/landmarkDetector.dat "https://owncloud.cesnet.cz/index.php/s/V0KIPJoUFllpAXh/download?path=%2F&files=landmarkDetector.dat" || echo "Failed to download landmarkDetector.dat"
 
 # 필요한 Python 패키지 설치
 RUN pip install --no-cache-dir \
