@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.10.12-slim
 
 # 작업 디렉토리 설정
 WORKDIR /app
@@ -46,7 +46,7 @@ RUN pip install --no-cache-dir \
     regex \
     tqdm \
     psutil \
-    kafka-python==2.0.4 \
+    kafka-python==1.4.7 \
     python-dotenv \
     requests 
 
