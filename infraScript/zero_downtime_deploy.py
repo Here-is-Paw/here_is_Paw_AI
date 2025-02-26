@@ -5,7 +5,8 @@ import requests
 import subprocess
 import time
 from typing import Dict, Optional
-
+from kafka import KafkaConsumer
+import socket
 
 class ServiceManager:
     # 초기화 함수
@@ -13,8 +14,8 @@ class ServiceManager:
         self.socat_port: int = socat_port
         self.sleep_duration: int = sleep_duration
         self.services: Dict[str, int] = {
-            'dog_face_compare_1': 5011,
-            'dog_face_compare_2': 5012
+            'dog_face_compare_1': 5001,
+            'dog_face_compare_2': 5002
         }
         self.current_name: Optional[str] = None
         self.current_port: Optional[int] = None
@@ -48,10 +49,20 @@ class ServiceManager:
         os.system(f"docker rm -f {name} 2> /dev/null")
 
     # Docker 컨테이너를 실행하는 함수
+    # def _run_container(self, name: str, port: int) -> None:
+        # os.system(
+            # f"docker run -d --name={name} --restart unless-stopped -p {port}:5001 -e TZ=Asia/Seoul -e DATABASE_URL='postgresql://myuser:1234@43.203.126.129:5432/dogdb_test' -v /dockerProjects/dog_face_compare/models:/app/models --pull always ghcr.io/here-is-paw/dog_face_compare:latest")
     def _run_container(self, name: str, port: int) -> None:
         os.system(
-            f"docker run -d --name={name} --restart unless-stopped -p {port}:5001 -e TZ=Asia/Seoul -e DATABASE_URL='postgresql://myuser:1234@43.203.126.129:5432/dogdb_test' -v /dockerProjects/dog_face_compare/models:/app/models --pull always ghcr.io/here-is-paw/dog_face_compare:latest")
-
+            f"docker run -d"
+            f" --name={name}"
+            f" --restart unless-stopped"
+            f" -p {port}:5001"
+            f" --env-file /dockerProjects/dog_face_compare/.env"  # .env 파일 사용
+            f" -v /dockerProjects/dog_face_compare/models:/app/models"
+            f" --network host"
+            f" --pull always ghcr.io/here-is-paw/dog_face_compare:latest"
+        )
     def _switch_port(self) -> None:
         # Socat 포트를 전환하는 함수
         cmd: str = f"ps aux | grep 'socat -t0 TCP-LISTEN:{self.socat_port}' | grep -v grep | awk '{{print $2}}'"
@@ -65,17 +76,67 @@ class ServiceManager:
         os.system(
             f"nohup socat -t0 TCP-LISTEN:{self.socat_port},fork,reuseaddr TCP:localhost:{self.next_port} &>/dev/null &")
 
-    # 서비스 상태를 확인하는 함수
     def _is_service_up(self, port: int) -> bool:
-        # Flask 애플리케이션은 /actuator/health 엔드포인트가 없으므로 루트 경로로 확인
-        url = f"http://127.0.0.1:{port}/"
+        """Kafka 서비스의 상태를 Docker 컨테이너 상태로 확인"""
         try:
-            response = requests.get(url, timeout=5)
-            if response.status_code == 200:
+            # 해당 포트를 사용하는 컨테이너의 상태 확인
+            cmd = f"docker ps --filter publish={port} --format '{{{{.Status}}}}'"
+            status = subprocess.getoutput(cmd)
+            
+            # 컨테이너가 실행 중이고 (Up) 일정 시간 이상 실행됐는지 확인
+            if status.startswith('Up'):
+                print(f"컨테이너 상태: {status}")
+                # 최소 10초 이상 실행 중인지 확인
+                uptime_str = status.split(' ')[1]
+                if 'seconds' in uptime_str:
+                    seconds = int(uptime_str.replace('seconds', '').strip())
+                    return seconds >= 10
                 return True
-        except requests.RequestException:
-            pass
-        return False
+                
+            return False
+        
+        except Exception as e:
+            print(f"서비스 상태 확인 중 오류 발생: {str(e)}")
+            return False
+
+    # # 서비스 상태를 확인하는 함수
+    # def _is_service_up(self, port: int) -> bool:
+    #     """Kafka 서비스 상태 확인"""
+    #     try:
+    #         # 1. 먼저 Docker 컨테이너가 실행 중인지 확인
+    #         cmd = f"docker ps --filter publish={port} --format '{{{{.Status}}}}'"
+    #         status = subprocess.getoutput(cmd)
+    #         if not status.startswith('Up'):
+    #             print(f"컨테이너가 실행중이 아님: {status}")
+    #             return False
+
+    #         # 2. TCP 포트가 열려있는지 확인
+    #         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    #         result = sock.connect_ex(('127.0.0.1', port))
+    #         sock.close()
+            
+    #         if result != 0:
+    #             print(f"포트 {port}가 열려있지 않음")
+    #             return False
+
+    #         # 3. Kafka Consumer 연결 테스트
+    #         consumer = KafkaConsumer(
+    #             bootstrap_servers=f'localhost:{port}',
+    #             api_version=(2, 5, 0),
+    #             request_timeout_ms=5000,  # 5초 타임아웃
+    #             group_id='health_check'
+    #         )
+            
+    #         # 연결 확인
+    #         consumer.bootstrap_connected()
+    #         consumer.close()
+            
+    #         print(f"서비스 {port} 정상 동작 중")
+    #         return True
+            
+    #     except Exception as e:
+    #         print(f"서비스 상태 확인 중 오류 발생: {str(e)}")
+    #         return False
 
     # 서비스를 업데이트하는 함수
     def update_service(self) -> None:

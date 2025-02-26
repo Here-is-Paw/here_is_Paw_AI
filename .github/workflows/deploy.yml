@@ -1,96 +1,95 @@
-# name: 'deploy'
-# on:
-#   push:
-#     paths:
-#       - '.github/workflows/**'
-#       - '*.py'               # 루트의 모든 Python 파일
-#       - 'models/**'          # models 디렉토리
-#       - 'database.py'
-#       - 'detector.py'
-#       - 'models.py'
-#       - 'app.py'
-#       - 'Dockerfile'
-#       - 'readme.md'
-#       - 'requirements.txt'
-#       - 'infraScript/**'
-#     branches:
-#       - 'main'
-# jobs:
-#   makeTagAndRelease:
-#     runs-on: ubuntu-latest
-#     outputs:
-#       tag_name: ${{ steps.create_tag.outputs.new_tag }}
-#     steps:
-#       - uses: actions/checkout@v4
-#       - name: Create Tag
-#         id: create_tag
-#         uses: mathieudutour/github-tag-action@v6.1
-#         with:
-#           github_token: ${{ secrets.GITHUB_TOKEN }}
-#       - name: Create Release
-#         id: create_release
-#         uses: actions/create-release@v1
-#         env:
-#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#         with:
-#           tag_name: ${{ steps.create_tag.outputs.new_tag }}
-#           release_name: Release ${{ steps.create_tag.outputs.new_tag }}
-#           body: ${{ steps.create_tag.outputs.changelog }}
-#           draft: false
-#           prerelease: false
-#   buildImageAndPush:
-#     name: 도커 이미지 빌드와 푸시
-#     needs: makeTagAndRelease
-#     runs-on: ubuntu-latest
-#     steps:
-#       - uses: actions/checkout@v4
-#       - name: Docker Buildx 설치
-#         uses: docker/setup-buildx-action@v2
-#       - name: 레지스트리 로그인
-#         uses: docker/login-action@v2
-#         with:
-#           registry: ghcr.io
-#           username: ${{ github.actor }}
-#           password: ${{ secrets.GITHUB_TOKEN }}
-#       - name: set lower case owner name
-#         run: |
-#           echo "OWNER_LC=${OWNER,,}" >> ${GITHUB_ENV}
-#         env:
-#           OWNER: "${{ github.repository_owner }}"
-#       # 필요한 경우 모델 파일 다운로드
-#       - name: 모델 파일 다운로드
-#         run: |
-#           mkdir -p models
-#           if [ ! -f "models/dogHeadDetector.dat" ] || [ ! -f "models/landmarkDetector.dat" ]; then
-#             echo "모델 파일 다운로드 중..."
-#             wget -O models/dogHeadDetector.dat "https://owncloud.cesnet.cz/index.php/s/V0KIPJoUFllpAXh/download?path=%2F&files=dogHeadDetector.dat"
-#             wget -O models/landmarkDetector.dat "https://owncloud.cesnet.cz/index.php/s/V0KIPJoUFllpAXh/download?path=%2F&files=landmarkDetector.dat"
-#           fi
-#       - name: 빌드 앤 푸시
-#         uses: docker/build-push-action@v3
-#         with:
-#           context: .
-#           push: true
-#           tags: |
-#             ghcr.io/${{ env.OWNER_LC }}/dog_face_compare:${{ needs.makeTagAndRelease.outputs.tag_name }},
-#             ghcr.io/${{ env.OWNER_LC }}/dog_face_compare:latest
-#   deploy:
-#     runs-on: ubuntu-latest
-#     needs: [ buildImageAndPush ]
-#     steps:
-#       - name: AWS SSM Send-Command
-#         uses: peterkimzz/aws-ssm-send-command@master
-#         id: ssm
-#         with:
-#           aws-region: ${{ secrets.AWS_REGION }}
-#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-#           instance-ids: ${{ secrets.AWS_INSTANCE_ID }}
-#           working-directory: /
-#           comment: Deploy
-#           command: |
-#             mkdir -p /dockerProjects/dog_face_compare
-#             mkdir -p /dockerProjects/dog_face_compare/models
-#             curl -o /dockerProjects/dog_face_compare/zero_downtime_deploy.py https://raw.githubusercontent.com/Here-is-Paw/here_is_Paw_AI/main/infraScript/zero_downtime_deploy.py
-#             chmod +x /dockerProjects/dog_face_compare/zero_downtime_deploy.py
-#             python3 /dockerProjects/dog_face_compare/zero_downtime_deploy.py
+name: 'deploy'
+on:
+  push:
+    paths:
+      - '.github/workflows/**'
+      - '*.py'               # 루트의 모든 Python 파일
+      - 'models/**'          # models 디렉토리
+      - 'database.py'
+      - 'detector.py'
+      - 'models.py'
+      - 'app.py'
+      - 'Dockerfile'
+      - 'readme.md'
+      - 'requirements.txt'
+      - 'infraScript/**'
+    branches:
+      - 'main'
+jobs:
+  makeTagAndRelease:
+    runs-on: ubuntu-latest
+    outputs:
+      tag_name: ${{ steps.create_tag.outputs.new_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create Tag
+        id: create_tag
+        uses: mathieudutour/github-tag-action@v6.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.create_tag.outputs.new_tag }}
+          release_name: Release ${{ steps.create_tag.outputs.new_tag }}
+          body: ${{ steps.create_tag.outputs.changelog }}
+          draft: false
+          prerelease: false
+  buildImageAndPush:
+    name: 도커 이미지 빌드와 푸시
+    needs: makeTagAndRelease
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker Buildx 설치
+        uses: docker/setup-buildx-action@v2
+      - name: 레지스트리 로그인
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: set lower case owner name
+        run: |
+          echo "OWNER_LC=${OWNER,,}" >> ${GITHUB_ENV}
+        env:
+          OWNER: "${{ github.repository_owner }}"
+      # 필요한 경우 모델 파일 다운로드
+      - name: 모델 파일 다운로드
+        run: |
+          mkdir -p models
+          if [ ! -f "models/dogHeadDetector.dat" ] || [ ! -f "models/landmarkDetector.dat" ]; then
+            echo "모델 파일 다운로드 중..."
+            wget -O models/dogHeadDetector.dat "https://owncloud.cesnet.cz/index.php/s/V0KIPJoUFllpAXh/download?path=%2F&files=dogHeadDetector.dat"
+            wget -O models/landmarkDetector.dat "https://owncloud.cesnet.cz/index.php/s/V0KIPJoUFllpAXh/download?path=%2F&files=landmarkDetector.dat"
+          fi
+      - name: 빌드 앤 푸시
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ env.OWNER_LC }}/dog_face_compare:${{ needs.makeTagAndRelease.outputs.tag_name }},
+            ghcr.io/${{ env.OWNER_LC }}/dog_face_compare:latest
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [ buildImageAndPush ]
+    steps:
+      - name: AWS SSM Send-Command
+        uses: peterkimzz/aws-ssm-send-command@master
+        id: ssm
+        with:
+          aws-region: ${{ secrets.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          instance-ids: ${{ secrets.AWS_INSTANCE_ID }}
+          working-directory: /
+          comment: Deploy
+          command: |
+            mkdir -p /dockerProjects/dog_face_compare
+            curl -o /dockerProjects/dog_face_compare/zero_downtime_deploy.py https://raw.githubusercontent.com/Here-is-Paw/here_is_Paw_AI/main/infraScript/zero_downtime_deploy.py
+            chmod +x /dockerProjects/dog_face_compare/zero_downtime_deploy.py
+            python3 /dockerProjects/dog_face_compare/zero_downtime_deploy.py

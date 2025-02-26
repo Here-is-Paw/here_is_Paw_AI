@@ -34,7 +34,6 @@ RUN if [ ! -f /app/models/landmarkDetector.dat ]; then \
 
 # 필요한 Python 패키지 설치
 RUN pip install --no-cache-dir \
-    flask \
     sqlalchemy \
     psycopg2-binary \
     opencv-python-headless \
@@ -46,8 +45,10 @@ RUN pip install --no-cache-dir \
     ftfy \
     regex \
     tqdm \
-    gunicorn \
-    psutil
+    psutil \
+    kafka-python \
+    python-dotenv \
+    requests 
 
 # CLIP 모델 설치
 RUN pip install --no-cache-dir git+https://github.com/openai/CLIP.git
@@ -55,7 +56,6 @@ RUN pip install --no-cache-dir git+https://github.com/openai/CLIP.git
 # dlib 설치 (컴파일에 시간이 소요됨)
 RUN pip install --no-cache-dir dlib
 
-# detector.py 수정 부분 제거 (이미 CPU로 설정되어 있음)
 
 # 포트 노출
 EXPOSE 5001
@@ -67,3 +67,4 @@ ENV CUDA_VISIBLE_DEVICES=-1
 
 # CMD 명령어로 gunicorn 실행
 # CMD gunicorn --bind 0.0.0.0:5001 --workers=1 --max-requests=50 --max-requests-jitter=10 --timeout 120 --limit-request-line 0 app:app
+CMD ["python", "app.py"]
