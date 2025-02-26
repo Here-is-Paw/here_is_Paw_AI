@@ -1,5 +1,6 @@
 import json
 import logging
+import os   
 from kafka import KafkaConsumer, KafkaProducer
 from config import (
     KAFKA_BOOTSTRAP_SERVERS, 
@@ -31,7 +32,12 @@ class KafkaHandler:
             group_id=KAFKA_GROUP_ID,
             auto_offset_reset='earliest',
             api_version=(2, 5, 0),
-            value_deserializer=safe_json_decode
+            value_deserializer=safe_json_decode,
+            session_timeout_ms=10000,      # 10초
+            heartbeat_interval_ms=3000,    # 3초 
+            request_timeout_ms=15000,      # 10초
+            max_poll_records=int(os.getenv('KAFKA_MAX_POLL_RECORDS', '500')),
+            max_poll_interval_ms=int(os.getenv('KAFKA_MAX_POLL_INTERVAL_MS', '300000'))
         )
         
     def _create_producer(self):
@@ -40,9 +46,11 @@ class KafkaHandler:
             bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
             api_version=(2, 5, 0),
             value_serializer=lambda x: json.dumps(x).encode('utf-8'),
-            request_timeout_ms=30000,  # 30초로 제한
-            max_block_ms=30000,  # 30초로 제한
-            metadata_max_age_ms=300000  # 5분으로 제한
+            request_timeout_ms=10000,      # 10초
+            max_block_ms=10000,           # 10초
+            metadata_max_age_ms=60000,    # 1분
+            connections_max_idle_ms=30000, # 30초
+            retry_backoff_ms=500          # 0.5초
         )
         
     def send_response(self, response_message):
