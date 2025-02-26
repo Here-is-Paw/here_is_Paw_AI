@@ -13,8 +13,9 @@ import socket
 # 로깅 설정
 def setup_logging():
     # 현재 날짜와 시간을 포함한 로그 파일명 생성
+    log_dir = "/dockerProjects/dog_face_compare"
     current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = f"service_update_{current_time}.log"
+    log_filename = f"{log_dir}/service_update_{current_time}.log"
     
     # 로깅 포맷 설정
     log_format = "%(asctime)s - %(levelname)s - %(message)s"
