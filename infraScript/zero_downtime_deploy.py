@@ -182,11 +182,11 @@ class ServiceManager:
         
         # 환경 파일 확인
         env_file = "/dockerProjects/dog_face_compare/.env"
-        if not os.path.exists(env_file):
-            self.logger.warning(f"환경 파일이 존재하지 않습니다: {env_file}")
-        else:
-            env_content = self._run_command(f"cat {env_file} | grep -v '^#' | grep -v '^$'", log_output=False)
-            self.logger.info(f"환경 파일 내용 (민감 정보 제외): {len(env_content.split('\\n'))} 라인")
+        # if not os.path.exists(env_file):
+        #     self.logger.warning(f"환경 파일이 존재하지 않습니다: {env_file}")
+        # else:
+        #     env_content = self._run_command(f"cat {env_file} | grep -v '^#' | grep -v '^$'", log_output=False)
+        #     self.logger.info(f"환경 파일 내용 (민감 정보 제외): {len(env_content.split('\\n'))} 라인")
         
         # 볼륨 경로 확인
         models_dir = "/dockerProjects/dog_face_compare/models"
