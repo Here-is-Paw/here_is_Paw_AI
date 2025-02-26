@@ -15,7 +15,8 @@ from database import get_db
 from detector import (
     extract_and_save_features, 
     resize_image_if_large, 
-    compare_with_database
+    compare_with_database,
+    save_and_compare
 )
 from config import (
     KAFKA_BOOTSTRAP_SERVERS, 
@@ -101,17 +102,17 @@ def process_message(message_data, kafka_handler):
         db = next(get_db())
         try:
             # 저장 및 특징 추출
-            dog_feature = extract_and_save_features(
+            results, compare_type = save_and_compare(
                 img, 
                 post_type, 
                 int(message_data['postId']), 
                 db
             )
-            logger.info(f"저장 성공: image_id={dog_feature.id}")
+        
             
-            # 비교 처리
-            compare_type = get_compare_type(post_type)
-            results = compare_with_database(img, compare_type, db, threshold=0.9)
+            # # 비교 처리
+            # compare_type = get_compare_type(post_type)
+            # results = compare_with_database(img, compare_type, db, threshold=0.9)
             top_results = results[:20] if len(results) > 20 else results
             
             # 응답 메시지 구성
