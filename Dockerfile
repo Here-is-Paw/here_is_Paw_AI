@@ -46,7 +46,7 @@ RUN pip install --no-cache-dir \
     regex \
     tqdm \
     psutil \
-    kafka-python \
+    kafka-python==2.0.4 \
     python-dotenv \
     requests 
 
@@ -67,4 +67,4 @@ ENV CUDA_VISIBLE_DEVICES=-1
 
 # CMD 명령어로 gunicorn 실행
 # CMD gunicorn --bind 0.0.0.0:5001 --workers=1 --max-requests=50 --max-requests-jitter=10 --timeout 120 --limit-request-line 0 app:app
-CMD ["python", "app.py"]
+CMD ["python3", "app.py"]

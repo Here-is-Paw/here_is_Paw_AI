@@ -17,6 +17,3 @@ DATABASE_URL = os.getenv('DATABASE_URL')
 # 이미지 처리 설정
 MAX_IMAGE_SIZE = int(os.getenv('MAX_IMAGE_SIZE', '512'))
 SIMILARITY_THRESHOLD = float(os.getenv('SIMILARITY_THRESHOLD', '0.9'))
-
-# 처리 설정
-PROCESSING_TIMEOUT = int(os.getenv('PROCESSING_TIMEOUT', '60'))
