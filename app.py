@@ -162,6 +162,10 @@ def main():
     """메인 함수"""
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+
+    logger.warning(f"KAFKA_BOOTSTRAP_SERVERS={KAFKA_BOOTSTRAP_SERVERS}")
+    logger.warning(f"KAFKA_REQUEST_TOPIC={KAFKA_REQUEST_TOPIC}")
+    logger.warning(f"KAFKA_GROUP_ID={KAFKA_GROUP_ID}")
     
     kafka_handler = KafkaHandler()
     logger.warning("Kafka 서비스 시작")

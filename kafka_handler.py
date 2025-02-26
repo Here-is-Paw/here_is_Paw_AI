@@ -39,7 +39,10 @@ class KafkaHandler:
         return KafkaProducer(
             bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
             api_version=(2, 5, 0),
-            value_serializer=lambda x: json.dumps(x).encode('utf-8')
+            value_serializer=lambda x: json.dumps(x).encode('utf-8'),
+            request_timeout_ms=30000,  # 30초 타임아웃 설정
+            max_block_ms=30000,        # 최대 블록 시간 30초로 제한
+            metadata_max_age_ms=300000 # 메타데이터 최대 수명 5분으로 설정
         )
         
     def send_response(self, response_message):

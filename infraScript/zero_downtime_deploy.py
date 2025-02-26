@@ -53,6 +53,7 @@ class ServiceManager:
         # os.system(
             # f"docker run -d --name={name} --restart unless-stopped -p {port}:5001 -e TZ=Asia/Seoul -e DATABASE_URL='postgresql://myuser:1234@43.203.126.129:5432/dogdb_test' -v /dockerProjects/dog_face_compare/models:/app/models --pull always ghcr.io/here-is-paw/dog_face_compare:latest")
     def _run_container(self, name: str, port: int) -> None:
+        print("dog_face_compare의 다운 중...")
         os.system(
             f"docker run -d"
             f" --name={name}"
