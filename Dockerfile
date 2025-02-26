@@ -24,13 +24,13 @@ COPY . /app/
 RUN mkdir -p /app/models
 RUN mkdir -p /app/models
 
-# 로컬 모델 파일 확인 후 없으면 다운로드
-RUN if [ ! -f /app/models/dogHeadDetector.dat ]; then \
-    wget -O /app/models/dogHeadDetector.dat "https://owncloud.cesnet.cz/index.php/s/V0KIPJoUFllpAXh/download?path=%2F&files=dogHeadDetector.dat" || echo "Failed to download dogHeadDetector.dat"; \
-    fi
-RUN if [ ! -f /app/models/landmarkDetector.dat ]; then \
-    wget -O /app/models/landmarkDetector.dat "https://owncloud.cesnet.cz/index.php/s/V0KIPJoUFllpAXh/download?path=%2F&files=landmarkDetector.dat" || echo "Failed to download landmarkDetector.dat"; \
-    fi
+# # 로컬 모델 파일 확인 후 없으면 다운로드
+# RUN if [ ! -f /app/models/dogHeadDetector.dat ]; then \
+#     wget -O /app/models/dogHeadDetector.dat "https://owncloud.cesnet.cz/index.php/s/V0KIPJoUFllpAXh/download?path=%2F&files=dogHeadDetector.dat" || echo "Failed to download dogHeadDetector.dat"; \
+#     fi
+# RUN if [ ! -f /app/models/landmarkDetector.dat ]; then \
+#     wget -O /app/models/landmarkDetector.dat "https://owncloud.cesnet.cz/index.php/s/V0KIPJoUFllpAXh/download?path=%2F&files=landmarkDetector.dat" || echo "Failed to download landmarkDetector.dat"; \
+#     fi
 
 # 필요한 Python 패키지 설치
 RUN pip install --no-cache-dir \
