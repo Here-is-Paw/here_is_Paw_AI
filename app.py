@@ -123,6 +123,7 @@ def process_message(message_data, kafka_handler):
                 'compared_type': compare_type,
                 'message':f"{post_type}_to_{compare_type}",
                 'origin_member_id' : message_data['postMemberId'],
+                'origin_post_id' : message_data['postId'],
                 'matches': [{
                     'image_id': r['image_id'],
                     'post_type': r['post_type'],
