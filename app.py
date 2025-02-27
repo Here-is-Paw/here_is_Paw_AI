@@ -11,11 +11,9 @@ import logging
 import signal
 import requests
 from kafka_handler import KafkaHandler
-from database import get_db
+from database import get_db, init_db
 from detector import (
-    extract_and_save_features, 
     resize_image_if_large, 
-    compare_with_database,
     save_and_compare
 )
 from config import (
@@ -106,25 +104,30 @@ def process_message(message_data, kafka_handler):
                 img, 
                 post_type, 
                 int(message_data['postId']), 
+                int(message_data['postMemberId']),
                 db
             )
-        
-            
-            # # 비교 처리
-            # compare_type = get_compare_type(post_type)
-            # results = compare_with_database(img, compare_type, db, threshold=0.9)
+
             top_results = results[:20] if len(results) > 20 else results
+            
+            # 결과가 있을때만 카프카 전송
+            if not top_results:
+                logger.info("결과가 없습니다.")
+                return
             
             # 응답 메시지 구성
             response_message = {
-                'request_id': message_data.get('request_id'),
+                # 'request_id': message_data.get('request_id'),
                 'status': 'success',
                 'saved_type': post_type,
                 'compared_type': compare_type,
+                'message':f"{post_type}_to_{compare_type}",
+                'origin_member_id' : message_data['postMemberId'],
                 'matches': [{
                     'image_id': r['image_id'],
                     'post_type': r['post_type'],
                     'post_id': r['post_id'],
+                    'target_member_id': r['post_member_id'],
                     'similarity': float(r['similarity'])
                 } for r in top_results]
             }
@@ -142,7 +145,7 @@ def process_message(message_data, kafka_handler):
     except Exception as e:
         logger.error(f'처리 중 에러 발생: {str(e)}')
         kafka_handler.send_error({
-            'request_id': message_data.get('request_id'),
+            # 'request_id': message_data.get('request_id'),
             'status': 'error',
             'error': str(e)
         })
@@ -159,6 +162,10 @@ def signal_handler(sig, frame):
     shutdown_event.set()
 
 def main():
+
+    
+    init_db()
+    
     """메인 함수"""
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)

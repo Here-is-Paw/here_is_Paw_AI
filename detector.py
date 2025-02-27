@@ -265,7 +265,7 @@ def draw_annotations(image, face, shape, scores):
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-def extract_and_save_features(img, postType, postId, db):
+def extract_and_save_features(img, postType, postId, postMemberId, db):
     """이미지에서 특징을 추출하고 DB에 저장"""
     try:
         
@@ -289,6 +289,7 @@ def extract_and_save_features(img, postType, postId, db):
         dog_image = DogImage(
             post_type=postType,
             post_id=postId,
+            post_member_id=postMemberId,
             embedding=embedding.cpu().numpy().flatten().tolist(),
             landmark_features=landmark_features.tolist(),
             face_location=list(face)
@@ -316,22 +317,6 @@ def extract_and_save_features(img, postType, postId, db):
 
 def compare_with_database(dog_feature,lookupType, db_session, threshold=0.9):
     """새 이미지와 DB의 모든 이미지 비교"""
-    # 새 이미지 특징 추출
-    # img = cv2.imread(new_image_path)
-    # gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # faces = face_locations(gray)
-    # if not faces:
-    #     return []
-    
-    # face = faces[0]
-    # face_rect = dlib.rectangle(face[3], face[0], face[1], face[2])
-    # shape = predictor(gray, face_rect)
-    
-    # new_embedding = extract_face_embedding(img, face)
-    # new_landmark_features = extract_landmark_features(shape, img, gray)
-    
-    # new_embedding = dog_feature.embedding
-    # new_landmark_features = dog_feature.landmark_features
 
     new_embedding = torch.tensor(dog_feature.embedding).to(device)
     new_landmark_features = np.array(dog_feature.landmark_features)
@@ -359,14 +344,14 @@ def compare_with_database(dog_feature,lookupType, db_session, threshold=0.9):
                 'image_id': stored_image.id,
                 'post_type': stored_image.post_type,
                 'post_id': stored_image.post_id,
-                # 'image_path': stored_image.image_path,
+                'post_member_id': stored_image.post_member_id,
                 'similarity': combined_score
             })
     
     return sorted(results, key=lambda x: x['similarity'], reverse=True)
 
-def save_and_compare(img, postType, postId, db):
-    dog_feature = extract_and_save_features(img, postType, postId, db)
+def save_and_compare(img, postType, postId, postMemberId, db):
+    dog_feature = extract_and_save_features(img, postType, postId, postMemberId, db)
     logger.info(f"저장 성공: image_id={dog_feature.id}")
     compare_type = get_compare_type(postType)
     results = compare_with_database(dog_feature, compare_type, db, threshold=0.9)

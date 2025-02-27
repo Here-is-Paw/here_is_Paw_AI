@@ -48,7 +48,8 @@ RUN pip install --no-cache-dir \
     psutil \
     kafka-python==1.4.7 \
     python-dotenv \
-    requests 
+    requests \
+    python-snappy
 
 # CLIP 모델 설치
 RUN pip install --no-cache-dir git+https://github.com/openai/CLIP.git
