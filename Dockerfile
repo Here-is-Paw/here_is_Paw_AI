@@ -20,20 +20,15 @@ RUN apt-get update && apt-get install -y \
 # 애플리케이션 코드 복사
 COPY . /app/
 
-# # models 디렉토리 생성
+# models 디렉토리 생성
 RUN mkdir -p /app/models
-RUN mkdir -p /app/models
-
-# # 로컬 모델 파일 확인 후 없으면 다운로드
-# RUN if [ ! -f /app/models/dogHeadDetector.dat ]; then \
-#     wget -O /dockerProjects/dog_face_compare/models/dogHeadDetector.dat "https://owncloud.cesnet.cz/index.php/s/V0KIPJoUFllpAXh/download?path=%2F&files=dogHeadDetector.dat" || echo "Failed to download dogHeadDetector.dat"; \
-#     fi
-# RUN if [ ! -f /app/models/landmarkDetector.dat ]; then \
-#     wget -O /dockerProjects/dog_face_compare/models/landmarkDetector.dat "https://owncloud.cesnet.cz/index.php/s/V0KIPJoUFllpAXh/download?path=%2F&files=landmarkDetector.dat" || echo "Failed to download landmarkDetector.dat"; \
-#     fi
+RUN mkdir -p /app/uploaded_images
 
 # 필요한 Python 패키지 설치
 RUN pip install --no-cache-dir \
+    fastapi \
+    uvicorn \
+    python-multipart \
     sqlalchemy \
     psycopg2-binary \
     opencv-python-headless \
