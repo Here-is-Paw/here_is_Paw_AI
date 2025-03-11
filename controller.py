@@ -33,6 +33,22 @@ RESULT_DIRECTORY = "result_images"
 os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
 os.makedirs(RESULT_DIRECTORY, exist_ok=True)
 
+# 파일 삭제를 위한 헬퍼 함수
+def clean_up_files(files):
+    """
+    파일 목록을 입력받아 존재하는 파일을 삭제합니다.
+    
+    Args:
+        files (list): 삭제할 파일 경로 리스트
+    """
+    for file_path in files:
+        try:
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
+                print(f"File deleted: {file_path}")
+        except Exception as e:
+            print(f"Error deleting file {file_path}: {e}")
+
 @app.get("/")
 def read_root():
     return {"message": "Welcome to Here is Paw AI Service"}
@@ -108,16 +124,15 @@ async def upload_image(file: UploadFile = File(...), draw_result: bool = True):
                 json_response["image_data"] = base64_image
                 json_response["image_type"] = f"image/{file_extension.replace('.', '')}"
                 
-                return JSONResponse(
-                    status_code=200,
-                    content=json_response
-                )
+                # 응답 생성 및 파일 정리
+                response = JSONResponse(status_code=200, content=json_response)
+                clean_up_files([file_path, result_path])
+                return response
             else:
-                # JSON 응답만 반환
-                return JSONResponse(
-                    status_code=200,
-                    content=json_response
-                )
+                 # 응답 생성 및 파일 정리
+                response = JSONResponse(status_code=200, content=json_response)
+                clean_up_files([file_path])
+                return response
         else:
             # 얼굴이 검출되지 않았을 때
             json_response = {
@@ -145,18 +160,20 @@ async def upload_image(file: UploadFile = File(...), draw_result: bool = True):
                 json_response["image_data"] = base64_image
                 json_response["image_type"] = f"image/{file_extension.replace('.', '')}"
                 
-                return JSONResponse(
-                    status_code=200,
-                    content=json_response
-                )
+                # 응답 생성 및 파일 정리
+                response = JSONResponse(status_code=200, content=json_response)
+                clean_up_files([file_path, result_path])
+                return response
             else:
-                # JSON 응답만 반환
-                return JSONResponse(
-                    status_code=200,
-                    content=json_response
-                )
+                # 응답 생성 및 파일 정리
+                response = JSONResponse(status_code=200, content=json_response)
+                clean_up_files([file_path])
+                return response
     
     except Exception as e:
+        # 오류 발생 시에도 파일 정리
+        if file_path or result_path:
+            clean_up_files([file_path, result_path])
         return HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
