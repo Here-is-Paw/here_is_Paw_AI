@@ -31,6 +31,7 @@ class KafkaHandler:
             bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
             group_id=KAFKA_GROUP_ID,
             auto_offset_reset='earliest',
+            enable_auto_commit=True,
             api_version=(2, 5, 0),
             value_deserializer=safe_json_decode,
             session_timeout_ms=10000,      # 10초
