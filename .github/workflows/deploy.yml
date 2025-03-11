@@ -74,8 +74,7 @@ jobs:
           tags: |
             ghcr.io/${{ env.OWNER_LC }}/dog_face_compare:${{ needs.makeTagAndRelease.outputs.tag_name }},
             ghcr.io/${{ env.OWNER_LC }}/dog_face_compare:latest
-
-   deploy:
+  deploy:
     runs-on: ubuntu-latest
     needs: [ buildImageAndPush ]
     steps:
