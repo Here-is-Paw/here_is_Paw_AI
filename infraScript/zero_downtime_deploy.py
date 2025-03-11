@@ -199,7 +199,7 @@ class ServiceManager:
             f"docker run -d"
             f" --name={name}"
             f" --restart unless-stopped"
-            f" -p {port}:5001"
+            f" -p {port}:5010"
             f" --env-file {env_file}"
             f" -v {models_dir}:/app/models"
             f" {self.image_name}"

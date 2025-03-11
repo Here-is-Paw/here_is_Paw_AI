@@ -54,7 +54,7 @@ RUN pip install --no-cache-dir dlib
 
 
 # 포트 노출
-EXPOSE 5001
+EXPOSE 5010
 
 # 환경 변수 설정
 ENV PYTHONUNBUFFERED=1
@@ -63,4 +63,4 @@ ENV CUDA_VISIBLE_DEVICES=-1
 
 # CMD 명령어로 gunicorn 실행
 # CMD gunicorn --bind 0.0.0.0:5001 --workers=1 --max-requests=50 --max-requests-jitter=10 --timeout 120 --limit-request-line 0 app:app
-CMD ["python3", "app.py"]
+CMD ["python3", "start.py"]
