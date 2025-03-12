@@ -144,8 +144,12 @@ async def upload_image(file: UploadFile = File(...), draw_result: bool = True):
             
             if draw_result:
                 # 원본 이미지에 "No dog face" 텍스트 추가
+                height, width = img.shape[:2]
+                font_scale = max(0.4, min(height, width) / 500)  # 이미지 크기에 비례한 글꼴 크기
+                thickness = max(1, int(min(height, width) / 100))
+
                 cv2.putText(img, "No dog face detected", (10, 30), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                           cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 255), thickness)
                 
                 # 결과 이미지 저장
                 result_filename = f"result_{unique_filename}"
