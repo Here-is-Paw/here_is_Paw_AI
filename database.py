@@ -5,7 +5,7 @@ from config import DATABASE_URL
 import os
 
 engine = create_engine(
-    DATABASE_URL,
+    "postgresql://myuser:1234@localhost/paw_db_kknaks",
     poolclass=QueuePool,
     pool_size=2,
     max_overflow=3,
